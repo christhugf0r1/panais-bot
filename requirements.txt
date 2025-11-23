@@ -1,2 +1,0 @@
-nextcord==2.5.2
-python-dotenv
