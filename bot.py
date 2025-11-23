@@ -51,18 +51,41 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # =========================
 
 def extract_numbers_from_image(image_bytes: bytes) -> int:
-    """Κάνει OCR στην εικόνα και επιστρέφει άθροισμα όλων των αριθμών."""
+    """Κάνει OCR στην εικόνα (βελτιωμένο για GTA screenshots)."""
     try:
         img = Image.open(io.BytesIO(image_bytes))
-        text = pytesseract.image_to_string(img, lang="eng")
-        # Βρες όλους τους ακέραιους
-        numbers = re.findall(r"\d+", text)
-        if not numbers:
+
+        # --- PRE-PROCESSING IMPROVEMENTS ---
+        # Convert to grayscale
+        img = img.convert("L")
+
+        # Increase contrast
+        img = Image.eval(img, lambda x: 255 if x > 150 else 0)
+
+        # Slight sharpen / upscale
+        img = img.resize((img.width * 2, img.height * 2))
+
+        # --- OCR with special settings ---
+        text = pytesseract.image_to_string(
+            img,
+            lang="eng",
+            config="--psm 6"
+        )
+
+        # Try to capture numbers with currency symbols
+        matches = re.findall(r"(\d{2,6})", text)
+
+        if not matches:
+            print("OCR TEXT:", text)
             return 0
-        return sum(map(int, numbers))
+
+        # Add all detected numbers
+        return sum(map(int, matches))
+
     except Exception as e:
-        print("OCR error:", e)
+        print("OCR ERROR:", e)
         return 0
+
 
 
 def get_role_multiplier(member: discord.Member) -> float:
@@ -267,6 +290,7 @@ if __name__ == "__main__":
         print("❌ ERROR: Το DISCORD_TOKEN δεν βρέθηκε στο περιβάλλον (Render env var).")
     else:
         bot.run(DISCORD_TOKEN)
+
 
 
 
