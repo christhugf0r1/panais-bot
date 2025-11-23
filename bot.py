@@ -52,52 +52,55 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 def extract_numbers_from_image(image_bytes: bytes) -> int:
     """
-    Κάνει OCR στην εικόνα για FiveM UI και επιστρέφει ΜΟΝΟ το total στο κάτω μέρος.
-    Παίρνουμε τον μεγαλύτερο αριθμό που βρήκε στο κάτω 50% της εικόνας.
+    Ειδική OCR για FiveM receipts.
+    Εντοπίζει ΜΟΝΟ το green TOTAL στο κάτω μέρος.
     """
     try:
-        img = Image.open(io.BytesIO(image_bytes))
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-        # --- 1) Κρατάμε μόνο το ΚΑΤΩ ΜΙΣΟ (εκεί που είναι το total) ---
         w, h = img.size
-        crop_box = (0, int(h * 0.5), w, h)   # κάτω 50% της εικόνας
+
+        # ---- 1) Κόβουμε το ΚΑΤΩ 25% ----
+        crop_box = (0, int(h * 0.75), w, h)
         img = img.crop(crop_box)
 
-        # --- 2) Προεπεξεργασία για να φαίνεται το neon πράσινο νούμερο ---
-        # Γκρι
-        img = img.convert("L")
-        # Αυξάνουμε μέγεθος
-        img = img.resize((img.width * 2, img.height * 2))
-        # Αυτόματο contrast
-        img = ImageOps.autocontrast(img)
-        # Binarize (άσπρο/μαύρο)
-        img = img.point(lambda x: 255 if x > 150 else 0)
+        # ---- 2) Κρατάμε ΜΟΝΟ πράσινα pixels ----
+        pixels = img.load()
+        for y in range(img.height):
+            for x in range(img.width):
+                r, g, b = pixels[x, y]
+                # Αν δεν είναι neon green, κάντο μαύρο
+                if not (g > 150 and g > r + 40 and g > b + 40):
+                    pixels[x, y] = (0, 0, 0)
+                else:
+                    pixels[x, y] = (255, 255, 255)
 
-        # --- 3) OCR με λίγη βοήθεια στις ρυθμίσεις ---
+        # ---- 3) Γκρι και upscale ×3 ----
+        img = img.convert("L")
+        img = img.resize((img.width * 3, img.height * 3))
+
+        # ---- 4) Threshold (ασπρόμαυρο) ----
+        img = img.point(lambda x: 255 if x > 60 else 0)
+
+        # ---- 5) OCR ----
         text = pytesseract.image_to_string(
             img,
             lang="eng",
-            config="--psm 6"
+            config="--psm 6 -c tessedit_char_whitelist=0123456789"
         )
 
-        # Optional: για debug στο Render
-        print("DEBUG OCR TEXT:", repr(text))
+        print("DEBUG TEXT:", text)
 
-        # --- 4) Βρίσκουμε όλους τους αριθμούς (με ή χωρίς $ μπροστά) ---
-        matches = re.findall(r"\$?\s*([0-9]{2,7})", text)
-        if not matches:
+        # ---- 6) Βρίσκουμε το μεγαλύτερο νούμερο ----
+        numbers = re.findall(r"(\d{2,7})", text)
+        if not numbers:
             return 0
 
-        nums = [int(m) for m in matches]
-
-        # --- 5) Επιστρέφουμε ΜΟΝΟ τον ΜΕΓΑΛΥΤΕΡΟ (το total) ---
-        return max(nums)
+        return max(map(int, numbers))
 
     except Exception as e:
         print("OCR ERROR:", e)
         return 0
-
-
 
 def get_role_multiplier(member: discord.Member) -> float:
     """Βρίσκει ποσοστό ανάλογα με τον ρόλο του χρήστη."""
@@ -301,6 +304,7 @@ if __name__ == "__main__":
         print("❌ ERROR: Το DISCORD_TOKEN δεν βρέθηκε στο περιβάλλον (Render env var).")
     else:
         bot.run(DISCORD_TOKEN)
+
 
 
 
