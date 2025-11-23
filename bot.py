@@ -51,36 +51,47 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # =========================
 
 def extract_numbers_from_image(image_bytes: bytes) -> int:
-    """Κάνει OCR στην εικόνα (βελτιωμένο για GTA screenshots)."""
+    """
+    Κάνει OCR στην εικόνα για FiveM UI και επιστρέφει ΜΟΝΟ το total στο κάτω μέρος.
+    Παίρνουμε τον μεγαλύτερο αριθμό που βρήκε στο κάτω 50% της εικόνας.
+    """
     try:
         img = Image.open(io.BytesIO(image_bytes))
 
-        # --- PRE-PROCESSING IMPROVEMENTS ---
-        # Convert to grayscale
+        # --- 1) Κρατάμε μόνο το ΚΑΤΩ ΜΙΣΟ (εκεί που είναι το total) ---
+        w, h = img.size
+        crop_box = (0, int(h * 0.5), w, h)   # κάτω 50% της εικόνας
+        img = img.crop(crop_box)
+
+        # --- 2) Προεπεξεργασία για να φαίνεται το neon πράσινο νούμερο ---
+        # Γκρι
         img = img.convert("L")
-
-        # Increase contrast
-        img = Image.eval(img, lambda x: 255 if x > 150 else 0)
-
-        # Slight sharpen / upscale
+        # Αυξάνουμε μέγεθος
         img = img.resize((img.width * 2, img.height * 2))
+        # Αυτόματο contrast
+        img = ImageOps.autocontrast(img)
+        # Binarize (άσπρο/μαύρο)
+        img = img.point(lambda x: 255 if x > 150 else 0)
 
-        # --- OCR with special settings ---
+        # --- 3) OCR με λίγη βοήθεια στις ρυθμίσεις ---
         text = pytesseract.image_to_string(
             img,
             lang="eng",
             config="--psm 6"
         )
 
-        # Try to capture numbers with currency symbols
-        matches = re.findall(r"(\d{2,6})", text)
+        # Optional: για debug στο Render
+        print("DEBUG OCR TEXT:", repr(text))
 
+        # --- 4) Βρίσκουμε όλους τους αριθμούς (με ή χωρίς $ μπροστά) ---
+        matches = re.findall(r"\$?\s*([0-9]{2,7})", text)
         if not matches:
-            print("OCR TEXT:", text)
             return 0
 
-        # Add all detected numbers
-        return sum(map(int, matches))
+        nums = [int(m) for m in matches]
+
+        # --- 5) Επιστρέφουμε ΜΟΝΟ τον ΜΕΓΑΛΥΤΕΡΟ (το total) ---
+        return max(nums)
 
     except Exception as e:
         print("OCR ERROR:", e)
@@ -290,6 +301,7 @@ if __name__ == "__main__":
         print("❌ ERROR: Το DISCORD_TOKEN δεν βρέθηκε στο περιβάλλον (Render env var).")
     else:
         bot.run(DISCORD_TOKEN)
+
 
 
 
